@@ -25,10 +25,17 @@ class Tokenizer(object):
         raise NotImplementedError("tokenize method must be overridden and implemented by a descendant class.")
 
 class BigramTokenizer(Tokenizer):
-    @log
     def tokenize(self, title, content = None):
+        '''
+        >>> BigramTokenizer().tokenize('abcd')
+        [(0, 'ab'), (1, 'bc'), (2, 'cd')]
+        >>> BigramTokenizer().tokenize('a cd')
+        [(2, 'cd')]
+        '''
         if content != None:
             document = title + content
+        else:
+            document = title
         length = len(document)
         tokens = []
         for i in range(0, length):
@@ -39,10 +46,17 @@ class BigramTokenizer(Tokenizer):
         return tokens
 
 class TrigramTokenizer(Tokenizer):
-    @log
     def tokenize(self, title, content = None):
+        '''
+        >>> TrigramTokenizer().tokenize('abcde')
+        [(0, 'abc'), (1, 'bcd'), (2, 'cde')]
+        >>> TrigramTokenizer().tokenize('ab def')
+        [(3, 'def')]
+        '''
         if content != None:
             document = title + content
+        else:
+            document = title
         length = len(document)
         tokens = []
         for i in range(0, length):
@@ -54,8 +68,15 @@ class TrigramTokenizer(Tokenizer):
 
 class TokenizerFactory(object):
     def create_tokenizer(self, tokenizer):
+        '''
+        >>> TokenizerFactory().create_tokenizer("Bigram") #doctest: +ELLIPSIS
+        <falcon.BigramTokenizer object at 0x...>
+        >>> TokenizerFactory().create_tokenizer("Trigram") #doctest: +ELLIPSIS
+        <falcon.TrigramTokenizer object at 0x...>
+        '''
         module = __import__("falcon")
         class_name = tokenizer + 'Tokenizer'
+        clazz = None
         try:
             clazz = getattr(module, class_name)
         except AttributeError:
@@ -171,12 +192,14 @@ class Searcher(object):
         self._database_file = database_file
         self._tokenizer = TokenizerFactory().create_tokenizer(tokenizer_type)
         self._inverted_index = OrderedDict()
+        self._documents = OrderedDict()
 
     @log
     def search(self, word):
         tokens = self._tokenizer.tokenize(word)
         for i, token in tokens:
             if token in self._inverted_index:
+                print(token)
                 with connection:
                     cursor = connection.cursor()
                     cursor.execute('SELECT token, posting_list FROM indexes WHERE token = ?', (token,))
@@ -186,11 +209,19 @@ class Searcher(object):
                             unpickled = pickle.loads(row[1])
                             unpickled.add(document_id, i)
                             self._inverted_index[token] = unpickled
+                            print(unpickled)
+                            for k, v in unpickled:
+                                if k in self._documents:
+                                    self._documents[k].append(v)
+                                else:
+                                    self._documents[k] = [v]
+        return self._documents
 
 class IndexManager(object):
     
     debug = False
 
+    @log
     def run(self):
         parser = argparse.ArgumentParser(description='Falcon Full Text Search Engine')
         parser.add_argument('-D', '--debug', help='enable debug mode', action='store_true')
@@ -208,12 +239,18 @@ class IndexManager(object):
 
         if self._args.databasefile != None:
             if self._args.query != None:
-                searcher = Searcher(self._args.databasefile, self._args.tokenizer)
+                if self._args.tokenizer != None:
+                    searcher = Searcher(self._args.databasefile, self._args.tokenizer)
+                else:
+                    searcher = Searcher(self._args.databasefile)
                 search_results = searcher.search(self._args.query)
                 for k, v in search_results:
                     print(k, v)
             elif self._args.title != None and self._args.content != None:
-                indexer = Indexer(self._args.databasefile, self._args.tokenizer)
+                if self._args.tokenizer != None:
+                    indexer = Indexer(self._args.databasefile, self._args.tokenizer)
+                else:
+                    indexer = Indexer(self._args.databasefile)
                 indexer.add_index(self._args.title, self._args.content)
 
             if self._args.showindex:
@@ -234,5 +271,7 @@ class IndexManager(object):
                         print(row[0], row[1], row[2])
 
 if __name__ == '__main__':
+    from doctest import testmod
+    testmod()
     index_manager = IndexManager()
     index_manager.run()
