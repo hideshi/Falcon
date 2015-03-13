@@ -3,7 +3,6 @@ import pickle
 import re
 import argparse
 from collections import OrderedDict
-import pprint as pp
 
 def log(method):
     def wrapper(self, *args):
@@ -22,12 +21,8 @@ class Tokenizer(object):
         self.stopwords = re.compile(r'[\s,.!\?"\'\$%&#:;\{\}\[\]\(\)、。]')
 
     @log
-    def tokenize(self, word):
-        raise NotImplementedError("tokenize method must be overridden and implemented by a descendant class")
-
-    @log
     def tokenize(self, title, content):
-        raise NotImplementedError("tokenize method must be overridden and implemented by a descendant class")
+        raise NotImplementedError("tokenize method must be overridden and implemented by a descendant class.")
 
 class BigramTokenizer(Tokenizer):
     @log
@@ -59,10 +54,14 @@ class TrigramTokenizer(Tokenizer):
 
 class TokenizerFactory(object):
     def create_tokenizer(self, tokenizer):
-        if tokenizer == 'Bigram':
-            return BigramTokenizer()
-        elif tokenizer == 'Trigram':
-            return TrigramTokenizer()
+        module = __import__("falcon")
+        class_name = tokenizer + 'Tokenizer'
+        try:
+            clazz = getattr(module, class_name)
+        except AttributeError:
+            print(class_name + ' is not implemented.')
+            exit(1)
+        return clazz()
 
 class Indexer(object):
     @log
@@ -168,8 +167,25 @@ class InvertedIndexHash(object):
 
 class Searcher(object):
     @log
+    def __init__(self, database_file, tokenizer_type = 'Bigram'):
+        self._database_file = database_file
+        self._tokenizer = TokenizerFactory().create_tokenizer(tokenizer_type)
+        self._inverted_index = OrderedDict()
+
+    @log
     def search(self, word):
-        pass
+        tokens = self._tokenizer.tokenize(word)
+        for i, token in tokens:
+            if token in self._inverted_index:
+                with connection:
+                    cursor = connection.cursor()
+                    cursor.execute('SELECT token, posting_list FROM indexes WHERE token = ?', (token,))
+                    rows = cursor.fetchall()
+                    if len(rows) > 0:
+                        for row in rows:
+                            unpickled = pickle.loads(row[1])
+                            unpickled.add(document_id, i)
+                            self._inverted_index[token] = unpickled
 
 class IndexManager(object):
     
@@ -192,8 +208,10 @@ class IndexManager(object):
 
         if self._args.databasefile != None:
             if self._args.query != None:
-                # Search
-                pass
+                searcher = Searcher(self._args.databasefile, self._args.tokenizer)
+                search_results = searcher.search(self._args.query)
+                for k, v in search_results:
+                    print(k, v)
             elif self._args.title != None and self._args.content != None:
                 indexer = Indexer(self._args.databasefile, self._args.tokenizer)
                 indexer.add_index(self._args.title, self._args.content)
