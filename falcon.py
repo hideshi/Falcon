@@ -18,7 +18,7 @@ def log(method):
 class Tokenizer(object):
     @log
     def __init__(self):
-        self.stopwords = re.compile(r'[\s,.!\?"\'\$%&#:;\{\}\[\]\(\)、。]')
+        self.stopwords = re.compile(r'[\s,.!\?"\'\$%&#:;\{\}\[\]\(\)、。（）]')
 
     @log
     def tokenize(self, title, content):
@@ -196,7 +196,7 @@ class Searcher(object):
                             for i in v:
                                 documents[k].append((i, token))
                             documents[k] = sorted(documents[k])
-        return self._get_matched_document_ids(documents, tokens)
+        return self._get_documents(self._get_matched_document_ids(documents, tokens))
 
     @log
     def _get_matched_document_ids(self, documents, tokens):
@@ -217,6 +217,16 @@ class Searcher(object):
                         sequence = sequence + 1
                 prev_position = position
         return set(matched_document_ids)
+
+    def _get_documents(self, matched_document_ids):
+        if len(matched_document_ids) == 0:
+            return {}
+        connection = sqlite3.connect(self._database_file)
+        with connection:
+            cursor = connection.cursor()
+            cursor.execute('SELECT id, title, content FROM documents WHERE id IN({0})'.format(', '.join(str(i) for i in matched_document_ids)))
+            return cursor.fetchall()
+        
         
 class TokenizerFactoryTest(unittest.TestCase):
     def runTest(self):
