@@ -2,6 +2,7 @@ import sqlite3
 import pickle
 import re
 import argparse
+import unittest
 
 def log(method):
     def wrapper(self, *args):
@@ -24,13 +25,8 @@ class Tokenizer(object):
         raise NotImplementedError("tokenize method must be overridden and implemented by a descendant class.")
 
 class BigramTokenizer(Tokenizer):
+    @log
     def tokenize(self, title, content = None):
-        '''
-        >>> BigramTokenizer().tokenize('abcd')
-        [(0, 'ab'), (1, 'bc'), (2, 'cd')]
-        >>> BigramTokenizer().tokenize('a cd')
-        [(2, 'cd')]
-        '''
         if content != None:
             document = title + content
         else:
@@ -45,13 +41,8 @@ class BigramTokenizer(Tokenizer):
         return tokens
 
 class TrigramTokenizer(Tokenizer):
+    @log
     def tokenize(self, title, content = None):
-        '''
-        >>> TrigramTokenizer().tokenize('abcde')
-        [(0, 'abc'), (1, 'bcd'), (2, 'cde')]
-        >>> TrigramTokenizer().tokenize('ab def')
-        [(3, 'def')]
-        '''
         if content != None:
             document = title + content
         else:
@@ -66,13 +57,8 @@ class TrigramTokenizer(Tokenizer):
         return tokens
 
 class TokenizerFactory(object):
+    @log
     def create_tokenizer(self, tokenizer):
-        '''
-        >>> TokenizerFactory().create_tokenizer("Bigram") #doctest: +ELLIPSIS
-        <falcon.BigramTokenizer object at 0x...>
-        >>> TokenizerFactory().create_tokenizer("Trigram") #doctest: +ELLIPSIS
-        <falcon.TrigramTokenizer object at 0x...>
-        '''
         module = __import__("falcon")
         class_name = tokenizer + 'Tokenizer'
         clazz = None
@@ -196,12 +182,10 @@ class Searcher(object):
         tokens = self._tokenizer.tokenize(word)
         connection = sqlite3.connect(self._database_file)
         documents = {}
-        matched_document_ids = []
-        print(tokens)
         for i, token in tokens:
             with connection:
                 cursor = connection.cursor()
-                cursor.execute('SELECT token, posting_list FROM indexes WHERE token = ? ORDER BY token ASC', (token,))
+                cursor.execute('SELECT token, posting_list FROM indexes WHERE token = ?', (token,))
                 rows = cursor.fetchall()
                 if len(rows) > 0:
                     for row in rows:
@@ -212,38 +196,76 @@ class Searcher(object):
                             for i in v:
                                 documents[k].append((i, token))
                             documents[k] = sorted(documents[k])
-        print(documents)
+        return self._get_matched_document_ids(documents, tokens)
+
+    @log
+    def _get_matched_document_ids(self, documents, tokens):
+        matched_document_ids = []
         for document_id, positions in documents.items():
-            print('document_id:', document_id)
             sorted_positions = sorted(positions)
             number_of_tokens = len(tokens)
-            sequence = 0
+            sequence = 1
             prev_position = -1
             for position, token in sorted_positions:
-                print(position, token)
-                print('sequence:', sequence)
-                print('prev_position:', prev_position)
                 if position - prev_position != 1:
-                    sequence = 0
-                if sequence == 0 or position - prev_position == 1:
-                    print('token:', token)
-                    print('token2:', tokens[sequence][1])
-                    if token == tokens[sequence][1]:
-                        sequence = sequence + 1
+                    sequence = 1
+                if sequence == 1 or (sequence <= number_of_tokens and position - prev_position == 1):
+                    t = tokens[sequence-1][1]
+                    if token == t:
                         if number_of_tokens == sequence:
-                            print('matched')
                             matched_document_ids.append(document_id)
+                        sequence = sequence + 1
                 prev_position = position
-        return matched_document_ids
+        return set(matched_document_ids)
+        
+class TokenizerFactoryTest(unittest.TestCase):
+    def runTest(self):
+        self.test_create_tokenizer()
+
+    def test_create_tokenizer(self):
+        o = TokenizerFactory()
+        self.assertEqual(o.create_tokenizer('Bigram').__class__.__name__, BigramTokenizer().__class__.__name__)
+        self.assertEqual(o.create_tokenizer('Trigram').__class__.__name__, TrigramTokenizer().__class__.__name__)
+
+class BigramTokenizerTest(unittest.TestCase):
+    def runTest(self):
+        self.test_tokenize()
+
+    def test_tokenize(self):
+        o = BigramTokenizer()
+        self.assertEqual(o.tokenize('abcd'), [(0, 'ab'), (1, 'bc'), (2, 'cd')])
+        self.assertEqual(o.tokenize('a cd'), [(2, 'cd')])
+
+class TrigramTokenizerTest(unittest.TestCase):
+    def runTest(self):
+        self.test_tokenize()
+
+    def test_tokenize(self):
+        o = TrigramTokenizer()
+        self.assertEqual(o.tokenize('abcde'), [(0, 'abc'), (1, 'bcd'), (2, 'cde')])
+        self.assertEqual(o.tokenize('ab def'), [(3, 'def')])
+
+class SearcherTest(unittest.TestCase):
+    def runTest(self):
+        self.test__get_matched_document_ids()
+
+    def test__get_matched_document_ids(self):
+        o = Searcher("", "Bigram")
+        self.assertEqual(o._get_matched_document_ids({1 : [(0, 'ab'), (1, 'bc'), (2, 'cd'), (3, 'de')], 2 : [(0, 'bc'), (1, 'ce'), (2, 'ef')]}, [(0, 'bc'), (1, 'cd')]), {1})
+        self.assertEqual(o._get_matched_document_ids({1 : [(0, 'ab'), (1, 'bc'), (2, 'cd'), (3, 'de')], 2 : [(0, 'bc'), (1, 'ce'), (2, 'ef')]}, [(0, 'ce'), (1, 'ef')]), {2})
+        self.assertEqual(o._get_matched_document_ids({1 : [(0, 'ab'), (1, 'bc'), (2, 'cd'), (3, 'de')], 2 : [(0, 'bc'), (1, 'ce'), (2, 'ef')]}, [(0, 'bc')]), {1, 2})
 
 class IndexManager(object):
     
     debug = False
 
+    test_classes = (SearcherTest, TokenizerFactoryTest, BigramTokenizerTest, TrigramTokenizerTest)
+
     @log
     def run(self):
         parser = argparse.ArgumentParser(description='Falcon Full Text Search Engine')
         parser.add_argument('-D', '--debug', help='enable debug mode', action='store_true')
+        parser.add_argument('-T', '--test', help='run test', action='store_true')
         parser.add_argument('-I', '--showindex', help='show index', action='store_true')
         parser.add_argument('-C', '--showdocument', help='show document(s)', action='store_true')
         parser.add_argument('-c', '--content', metavar='content', help='document content to be stored and indexed')
@@ -256,6 +278,13 @@ class IndexManager(object):
 
         IndexManager.debug = self._args.debug
 
+        if self._args.test:
+            suite = unittest.TestSuite()
+            for test_class in IndexManager.test_classes:
+                suite.addTest(test_class())
+            runner = unittest.TextTestRunner()
+            runner.run(suite)
+
         if self._args.databasefile != None:
             if self._args.query != None:
                 if self._args.tokenizer != None:
@@ -263,8 +292,8 @@ class IndexManager(object):
                 else:
                     searcher = Searcher(self._args.databasefile)
                 search_results = searcher.search(self._args.query)
-                for k in search_results:
-                    print(k)
+                for result in search_results:
+                    print(result)
             elif self._args.title != None and self._args.content != None:
                 if self._args.tokenizer != None:
                     indexer = Indexer(self._args.databasefile, self._args.tokenizer)
@@ -290,7 +319,5 @@ class IndexManager(object):
                         print(row[0], row[1], row[2])
 
 if __name__ == '__main__':
-    from doctest import testmod
-    testmod()
     index_manager = IndexManager()
     index_manager.run()
