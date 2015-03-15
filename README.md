@@ -3,7 +3,7 @@ Falcon Full Text Search Engine
 Falcon is a full text search engine using Python and SQLite3.  
 It requires Python 3 or above. 
   
-```python
+```
 % python falcon.py -h
 usage: falcon.py [-h] [-D] [-T] [-I] [-C] [-c content] [-d databasefile]
                  [-q query] [-t title] [-z tokenizer]
