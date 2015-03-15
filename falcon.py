@@ -79,7 +79,7 @@ class Indexer(object):
         with connection:
             cursor = connection.cursor()
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS indexes (
+                CREATE TABLE IF NOT EXISTS indices (
                       token TEXT PRIMARY KEY
                     , posting_list BLOB
                 )
@@ -97,7 +97,7 @@ class Indexer(object):
         connection = sqlite3.connect(self._database_file)
         with connection:
             cursor = connection.cursor()
-            cursor.execute('DELETE FROM indexes')
+            cursor.execute('DELETE FROM indices')
 
     @log
     def delete_documents(self):
@@ -133,7 +133,7 @@ class Indexer(object):
                 connection = sqlite3.connect(self._database_file)
                 with connection:
                     cursor = connection.cursor()
-                    cursor.execute('SELECT token, posting_list FROM indexes WHERE token = ?', (token,))
+                    cursor.execute('SELECT token, posting_list FROM indices WHERE token = ?', (token,))
                     rows = cursor.fetchall()
                     if len(rows) > 0:
                         for row in rows:
@@ -150,7 +150,7 @@ class Indexer(object):
             for k, v in self._inverted_index.items():
                 pickled = pickle.dumps(v)
                 cursor = connection.cursor()
-                cursor.execute('INSERT OR REPLACE INTO indexes (token, posting_list) VALUES (?, ?)', (k, pickled))
+                cursor.execute('INSERT OR REPLACE INTO indices (token, posting_list) VALUES (?, ?)', (k, pickled))
 
 class InvertedIndexHash(object):
     @log
@@ -185,7 +185,7 @@ class Searcher(object):
         for i, token in tokens:
             with connection:
                 cursor = connection.cursor()
-                cursor.execute('SELECT token, posting_list FROM indexes WHERE token = ?', (token,))
+                cursor.execute('SELECT token, posting_list FROM indices WHERE token = ?', (token,))
                 rows = cursor.fetchall()
                 if len(rows) > 0:
                     for row in rows:
@@ -315,7 +315,7 @@ class IndexManager(object):
                 connection = sqlite3.connect(self._args.databasefile)
                 with connection:
                     cursor = connection.cursor()
-                    cursor.execute('SELECT token, posting_list FROM indexes ORDER BY token')
+                    cursor.execute('SELECT token, posting_list FROM indices ORDER BY token')
                     for k1, v1 in cursor.fetchall():
                         o = pickle.loads(v1)
                         print(o.token, o.positions_count, o.posting_list)
