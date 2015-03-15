@@ -2,7 +2,6 @@ import sqlite3
 import pickle
 import re
 import argparse
-from collections import OrderedDict
 
 def log(method):
     def wrapper(self, *args):
@@ -89,7 +88,7 @@ class Indexer(object):
     def __init__(self, database_file, tokenizer_type = 'Bigram'):
         self._database_file = database_file
         self._tokenizer = TokenizerFactory().create_tokenizer(tokenizer_type)
-        self._inverted_index = OrderedDict()
+        self._inverted_index = {}
         connection = sqlite3.connect(self._database_file)
         with connection:
             cursor = connection.cursor()
@@ -171,7 +170,7 @@ class InvertedIndexHash(object):
     @log
     def __init__(self, token, document_id, position):
         self.token = token
-        self.posting_list = OrderedDict()
+        self.posting_list = {}
         self.posting_list[document_id] = [position]
         self.positions_count = 1
 
@@ -191,31 +190,51 @@ class Searcher(object):
     def __init__(self, database_file, tokenizer_type = 'Bigram'):
         self._database_file = database_file
         self._tokenizer = TokenizerFactory().create_tokenizer(tokenizer_type)
-        self._inverted_index = OrderedDict()
-        self._documents = OrderedDict()
 
     @log
     def search(self, word):
         tokens = self._tokenizer.tokenize(word)
+        connection = sqlite3.connect(self._database_file)
+        documents = {}
+        matched_document_ids = []
+        print(tokens)
         for i, token in tokens:
-            if token in self._inverted_index:
-                print(token)
-                with connection:
-                    cursor = connection.cursor()
-                    cursor.execute('SELECT token, posting_list FROM indexes WHERE token = ?', (token,))
-                    rows = cursor.fetchall()
-                    if len(rows) > 0:
-                        for row in rows:
-                            unpickled = pickle.loads(row[1])
-                            unpickled.add(document_id, i)
-                            self._inverted_index[token] = unpickled
-                            print(unpickled)
-                            for k, v in unpickled:
-                                if k in self._documents:
-                                    self._documents[k].append(v)
-                                else:
-                                    self._documents[k] = [v]
-        return self._documents
+            with connection:
+                cursor = connection.cursor()
+                cursor.execute('SELECT token, posting_list FROM indexes WHERE token = ? ORDER BY token ASC', (token,))
+                rows = cursor.fetchall()
+                if len(rows) > 0:
+                    for row in rows:
+                        unpickled = pickle.loads(row[1])
+                        for k, v in unpickled.posting_list.items():
+                            if k not in documents:
+                                documents[k] = []
+                            for i in v:
+                                documents[k].append((i, token))
+                            documents[k] = sorted(documents[k])
+        print(documents)
+        for document_id, positions in documents.items():
+            print('document_id:', document_id)
+            sorted_positions = sorted(positions)
+            number_of_tokens = len(tokens)
+            sequence = 0
+            prev_position = -1
+            for position, token in sorted_positions:
+                print(position, token)
+                print('sequence:', sequence)
+                print('prev_position:', prev_position)
+                if position - prev_position != 1:
+                    sequence = 0
+                if sequence == 0 or position - prev_position == 1:
+                    print('token:', token)
+                    print('token2:', tokens[sequence][1])
+                    if token == tokens[sequence][1]:
+                        sequence = sequence + 1
+                        if number_of_tokens == sequence:
+                            print('matched')
+                            matched_document_ids.append(document_id)
+                prev_position = position
+        return matched_document_ids
 
 class IndexManager(object):
     
@@ -244,8 +263,8 @@ class IndexManager(object):
                 else:
                     searcher = Searcher(self._args.databasefile)
                 search_results = searcher.search(self._args.query)
-                for k, v in search_results:
-                    print(k, v)
+                for k in search_results:
+                    print(k)
             elif self._args.title != None and self._args.content != None:
                 if self._args.tokenizer != None:
                     indexer = Indexer(self._args.databasefile, self._args.tokenizer)
