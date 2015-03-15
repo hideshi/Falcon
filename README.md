@@ -5,18 +5,15 @@ It requires Python 3 or above.
   
 ```python
 % python falcon.py -h
-usage: falcon.py [-h] [-D] [-I] [-C] [-c content] [-d databasefile] [-q query]
-                 [-t title] [-z tokenizer]
-                 [files [files ...]]
+usage: falcon.py [-h] [-D] [-T] [-I] [-C] [-c content] [-d databasefile]
+                 [-q query] [-t title] [-z tokenizer]
 
 Falcon Full Text Search Engine
-
-positional arguments:
-  files                 input file(s)
 
 optional arguments:
   -h, --help            show this help message and exit
   -D, --debug           enable debug mode
+  -T, --test            run test
   -I, --showindex       show index
   -C, --showdocument    show document(s)
   -c content, --content content
