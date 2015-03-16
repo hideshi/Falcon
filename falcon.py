@@ -218,6 +218,7 @@ class Searcher(object):
                 prev_position = position
         return set(matched_document_ids)
 
+    @log
     def _get_documents(self, matched_document_ids):
         if len(matched_document_ids) == 0:
             return {}
