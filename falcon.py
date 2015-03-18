@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import sqlite3
 import pickle
 import re
@@ -18,7 +19,7 @@ def log(method):
 class Tokenizer(object):
     @log
     def __init__(self):
-        self.stopwords = re.compile(r'[\s,.!\?"\'\$%&#:;\{\}\[\]\(\)、。（）]')
+        self.stopwords = re.compile(r'[0-9\s,.!?"\'$%&\-+=/#:;{}\[\]()<>\^~_→i｡@･、。（）：「」『』【】［］｛｝〈〉《》〔〕〜～�｜｀＼＠？！”＃＄％＆’＝ー＋＊＜＞＿＾￥／，・]')
 
     @log
     def tokenize(self, title, content):
@@ -55,6 +56,16 @@ class TrigramTokenizer(Tokenizer):
             if len(token) == 3 and m == None:
                 tokens.append((i, token))
         return tokens
+
+class WordTokenizer(Tokenizer):
+    @log
+    def tokenize(self, title, content = None):
+        if content != None:
+            document = title + ' ' + content
+        else:
+            document = title
+        tokens = document.lower().split()
+        return [(i, self.stopwords.sub('', tokens[i])) for i in range(0, len(tokens))]
 
 class TokenizerFactory(object):
     @log
@@ -256,6 +267,14 @@ class TrigramTokenizerTest(unittest.TestCase):
         self.assertEqual(o.tokenize('abcde'), [(0, 'abc'), (1, 'bcd'), (2, 'cde')])
         self.assertEqual(o.tokenize('ab def'), [(3, 'def')])
 
+class WordTokenizerTest(unittest.TestCase):
+    def runTest(self):
+        self.test_tokenize()
+
+    def test_tokenize(self):
+        o = WordTokenizer()
+        self.assertEqual(o.tokenize('abc defg hij'), [(0, 'abc'), (1, 'defg'), (2, 'hij')])
+
 class SearcherTest(unittest.TestCase):
     def runTest(self):
         self.test__get_matched_document_ids()
@@ -270,7 +289,7 @@ class IndexManager(object):
     
     debug = False
 
-    test_classes = (SearcherTest, TokenizerFactoryTest, BigramTokenizerTest, TrigramTokenizerTest)
+    test_classes = (SearcherTest, TokenizerFactoryTest, BigramTokenizerTest, TrigramTokenizerTest, WordTokenizerTest)
 
     @log
     def run(self):
@@ -303,8 +322,9 @@ class IndexManager(object):
                 else:
                     searcher = Searcher(self._args.databasefile)
                 search_results = searcher.search(self._args.query)
-                for result in search_results:
-                    print(result)
+                for row in search_results:
+                    #print(result)
+                    print(row[0], row[1], row[2][0:100])
             elif self._args.title != None and self._args.content != None:
                 if self._args.tokenizer != None:
                     indexer = Indexer(self._args.databasefile, self._args.tokenizer)
