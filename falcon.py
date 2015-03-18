@@ -191,7 +191,7 @@ class Searcher(object):
     @log
     def search(self, words):
         result = None
-        for word in re.split('\s+', words):
+        for word in re.split('\s+', words.strip(' 　')):
             tokens = self._tokenizer.tokenize(word)
             connection = sqlite3.connect(self._database_file)
             documents = {}
@@ -329,7 +329,6 @@ class IndexManager(object):
                     searcher = Searcher(self._args.databasefile)
                 search_results = searcher.search(self._args.query)
                 for row in search_results:
-                    #print(result)
                     print(row[0], row[1], row[2][0:100])
             elif self._args.title != None and self._args.content != None:
                 if self._args.tokenizer != None:
