@@ -19,7 +19,7 @@ def log(method):
 class Tokenizer(object):
     @log
     def __init__(self):
-        self.stopwords = re.compile(r'[0-9\s,.!?"\'$%&\-+=/#:;{}\[\]()<>\^~_→i｡@･、。（）：「」『』【】［］｛｝〈〉《》〔〕〜～�｜｀＼＠？！”＃＄％＆’＝ー＋＊＜＞＿＾￥／，・]')
+        self.stopwords = re.compile(r'[0-9\s,.!?"\'$%&\-+=/#:;{}\[\]()<>\^~_→i｡@･ﾞ､｢｣…★☆♭\\–▼♪⇔♥°‐――≠※∞◇×、。（）：；「」『』【】［］｛｝〈〉《》〔〕〜～�｜｀＼＠？！”＃＄％＆’＝ー＋＊＜＞＿＾￥／，・´ ▽ ．－]')
 
     @log
     def tokenize(self, title, content):
@@ -189,25 +189,31 @@ class Searcher(object):
         self._tokenizer = TokenizerFactory().create_tokenizer(tokenizer_type)
 
     @log
-    def search(self, word):
-        tokens = self._tokenizer.tokenize(word)
-        connection = sqlite3.connect(self._database_file)
-        documents = {}
-        for i, token in tokens:
-            with connection:
-                cursor = connection.cursor()
-                cursor.execute('SELECT token, posting_list FROM indices WHERE token = ?', (token,))
-                rows = cursor.fetchall()
-                if len(rows) > 0:
-                    for row in rows:
-                        unpickled = pickle.loads(row[1])
-                        for k, v in unpickled.posting_list.items():
-                            if k not in documents:
-                                documents[k] = []
-                            for i in v:
-                                documents[k].append((i, token))
-                            documents[k] = sorted(documents[k])
-        return self._get_documents(self._get_matched_document_ids(documents, tokens))
+    def search(self, words):
+        result = None
+        for word in re.split('\s+', words):
+            tokens = self._tokenizer.tokenize(word)
+            connection = sqlite3.connect(self._database_file)
+            documents = {}
+            for i, token in tokens:
+                with connection:
+                    cursor = connection.cursor()
+                    cursor.execute('SELECT token, posting_list FROM indices WHERE token = ?', (token,))
+                    rows = cursor.fetchall()
+                    if len(rows) > 0:
+                        for row in rows:
+                            unpickled = pickle.loads(row[1])
+                            for k, v in unpickled.posting_list.items():
+                                if k not in documents:
+                                    documents[k] = []
+                                for i in v:
+                                    documents[k].append((i, token))
+                                documents[k] = sorted(documents[k])
+            if result != None:
+                result = result.intersection(self._get_matched_document_ids(documents, tokens))
+            else:
+                result = self._get_matched_document_ids(documents, tokens)
+        return self._get_documents(result)
 
     @log
     def _get_matched_document_ids(self, documents, tokens):
