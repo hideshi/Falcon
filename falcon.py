@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 import sqlite3
 import pickle
+import bz2
 import re
 import argparse
 import unittest
+import resource
+
+_compress_level = 9
 
 def log(method):
     def wrapper(self, *args):
@@ -19,7 +23,7 @@ def log(method):
 class Tokenizer(object):
     @log
     def __init__(self):
-        self.stopwords = re.compile(r'[0-9\s,.!?"\'$%&\-+=/#:;{}\[\]()<>\^~_→i｡@･ﾞ､｢｣…★☆♭\\–▼♪⇔♥°‐――≠※∞◇×、。（）：；「」『』【】［］｛｝〈〉《》〔〕〜～�｜｀＼＠？！”＃＄％＆’＝ー＋＊＜＞＿＾￥／，・´ ▽ ．－]')
+        self.stopwords = re.compile(r'[0-9\s,.!?"\'$%&\-+=/#:;{}\[\]()<>\^~_→i｡@･ﾞ､｢｣…★☆♭\\–▼♪⇔♥°‐――≠※∞◇×、。（）：；「」『』【】［］｛｝〈〉《》〔〕〜～�｜｀＼＠？！”＃＄％＆’＝＋＊＜＞＿＾￥／，・´ ▽ ．－￤]')
 
     @log
     def tokenize(self, title, content):
@@ -81,6 +85,9 @@ class TokenizerFactory(object):
         return clazz()
 
 class Indexer(object):
+
+    mem_usage_limit = 10 * 1024 * 1024
+
     @log
     def __init__(self, database_file, tokenizer_type = 'Bigram'):
         self._database_file = database_file
@@ -99,7 +106,7 @@ class Indexer(object):
                 CREATE TABLE IF NOT EXISTS documents (
                       id INTEGER PRIMARY KEY
                     , title TEXT
-                    , content TEXT
+                    , content BLOB
                 )
             """)
 
@@ -130,7 +137,8 @@ class Indexer(object):
         connection = sqlite3.connect(self._database_file)
         with connection:
             cursor = connection.cursor()
-            cursor.execute('INSERT INTO documents (title, content) VALUES(?, ?)', (title, content))
+            compressed = bz2.compress(content.encode('utf-8'), _compress_level)
+            cursor.execute('INSERT INTO documents (title, content) VALUES(?, ?)', (title, compressed))
             lastrowid = cursor.lastrowid
             return lastrowid
 
@@ -162,6 +170,7 @@ class Indexer(object):
                 pickled = pickle.dumps(v)
                 cursor = connection.cursor()
                 cursor.execute('INSERT OR REPLACE INTO indices (token, posting_list) VALUES (?, ?)', (k, pickled))
+        self._inverted_index = {}
 
 class InvertedIndexHash(object):
     @log
@@ -243,8 +252,7 @@ class Searcher(object):
         with connection:
             cursor = connection.cursor()
             cursor.execute('SELECT id, title, content FROM documents WHERE id IN({0})'.format(', '.join(str(i) for i in matched_document_ids)))
-            return cursor.fetchall()
-        
+            return [[id, title, str(bz2.decompress(content), encoding = 'utf-8')] for id, title, content in cursor.fetchall()]
         
 class TokenizerFactoryTest(unittest.TestCase):
     def runTest(self):
@@ -336,6 +344,16 @@ class IndexManager(object):
                 else:
                     indexer = Indexer(self._args.databasefile)
                 indexer.add_index(self._args.title, self._args.content)
+            elif self._args.files != None:
+                if self._args.tokenizer != None:
+                    indexer = Indexer(self._args.databasefile, self._args.tokenizer)
+                else:
+                    indexer = Indexer(self._args.databasefile)
+                for file_name in self._args.files:
+                    with open(file_name) as f:
+                        for line in f:
+                            l = re.split('\s+', line, 1)
+                            indexer.add_index(l[0], l[1])
 
             if self._args.showindex:
                 connection = sqlite3.connect(self._args.databasefile)
