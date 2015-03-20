@@ -247,14 +247,18 @@ class Searcher(object):
         return set(matched_document_ids)
 
     @log
-    def _get_documents(self, matched_document_ids):
+    def _get_documents(self, matched_document_ids, return_content = False):
         if len(matched_document_ids) == 0:
             return {}
         connection = sqlite3.connect(self._database_file)
         with connection:
             cursor = connection.cursor()
-            cursor.execute('SELECT id, title, content FROM documents WHERE id IN({0})'.format(', '.join(str(i) for i in matched_document_ids)))
-            return [[id, title, str(bz2.decompress(content), encoding = 'utf-8')] for id, title, content in cursor.fetchall()]
+            if return_content:
+                cursor.execute('SELECT id, title, content FROM documents WHERE id IN({0})'.format(', '.join(str(i) for i in matched_document_ids)))
+                return [[id, title, str(bz2.decompress(content), encoding = 'utf-8')] for id, title, content in cursor.fetchall()]
+            else:
+                cursor.execute('SELECT id, title FROM documents WHERE id IN({0})'.format(', '.join(str(i) for i in matched_document_ids)))
+                return [[id, title] for id, title in cursor.fetchall()]
         
 class TokenizerFactoryTest(unittest.TestCase):
     def runTest(self):
@@ -338,8 +342,9 @@ class IndexManager(object):
                 else:
                     searcher = Searcher(self._args.databasefile)
                 search_results = searcher.search(self._args.query)
-                for row in search_results:
-                    print(row[0], row[1], row[2][0:100])
+                if search_results != None:
+                    for row in search_results:
+                        print(row[0], row[1])#, row[2][0:100])
             elif self._args.title != None and self._args.content != None:
                 if self._args.tokenizer != None:
                     indexer = Indexer(self._args.databasefile, self._args.tokenizer)
