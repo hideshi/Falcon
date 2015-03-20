@@ -61,16 +61,6 @@ class TrigramTokenizer(Tokenizer):
                 tokens.append((i, token))
         return tokens
 
-class WordTokenizer(Tokenizer):
-    @log
-    def tokenize(self, title, content = None):
-        if content != None:
-            document = title + ' ' + content
-        else:
-            document = title
-        tokens = document.lower().split()
-        return [(i, self.stopwords.sub('', tokens[i])) for i in range(0, len(tokens))]
-
 class TokenizerFactory(object):
     @log
     def create_tokenizer(self, tokenizer):
@@ -287,14 +277,6 @@ class TrigramTokenizerTest(unittest.TestCase):
         self.assertEqual(o.tokenize('abcde'), [(0, 'abc'), (1, 'bcd'), (2, 'cde')])
         self.assertEqual(o.tokenize('ab def'), [(3, 'def')])
 
-class WordTokenizerTest(unittest.TestCase):
-    def runTest(self):
-        self.test_tokenize()
-
-    def test_tokenize(self):
-        o = WordTokenizer()
-        self.assertEqual(o.tokenize('abc defg hij'), [(0, 'abc'), (1, 'defg'), (2, 'hij')])
-
 class SearcherTest(unittest.TestCase):
     def runTest(self):
         self.test__get_matched_document_ids()
@@ -309,7 +291,7 @@ class IndexManager(object):
     
     debug = False
 
-    test_classes = (SearcherTest, TokenizerFactoryTest, BigramTokenizerTest, TrigramTokenizerTest, WordTokenizerTest)
+    test_classes = (SearcherTest, TokenizerFactoryTest, BigramTokenizerTest, TrigramTokenizerTest)
 
     @log
     def run(self):
@@ -344,7 +326,7 @@ class IndexManager(object):
                 search_results = searcher.search(self._args.query)
                 if search_results != None:
                     for row in search_results:
-                        print(row[0], row[1])#, row[2][0:100])
+                        print(row[0], row[1])
             elif self._args.title != None and self._args.content != None:
                 if self._args.tokenizer != None:
                     indexer = Indexer(self._args.databasefile, self._args.tokenizer)
