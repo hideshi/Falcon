@@ -7,8 +7,12 @@ It requires Python 3 or above.
 % python falcon.py -h
 usage: falcon.py [-h] [-D] [-T] [-I] [-C] [-c content] [-d databasefile]
                  [-q query] [-t title] [-z tokenizer]
+                 [files [files ...]]
 
 Falcon Full Text Search Engine
+
+positional arguments:
+  files                 input file(s)
 
 optional arguments:
   -h, --help            show this help message and exit
