@@ -218,6 +218,8 @@ class Searcher(object):
                                 for i in v:
                                     documents[k].append((i, token))
                                 documents[k] = sorted(documents[k])
+                    else:
+                        return None
             if result != None:
                 result = result.intersection(self._get_matched_document_ids(documents, tokens))
             else:
