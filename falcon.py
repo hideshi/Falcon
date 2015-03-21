@@ -79,40 +79,36 @@ class Indexer(object):
     mem_usage_limit = 10 * 1024 * 1024
 
     @log
-    def __init__(self, database_file, tokenizer_type = 'Bigram'):
+    def __init__(self, database_file, memory_mode = False, tokenizer_type = 'Bigram'):
         self._database_file = database_file
+        self._memory_mode = memory_mode
         self._tokenizer = TokenizerFactory().create_tokenizer(tokenizer_type)
         self._inverted_index = {}
-        connection = sqlite3.connect(self._database_file)
-        with connection:
-            cursor = connection.cursor()
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS indices (
-                      token TEXT PRIMARY KEY
-                    , posting_list BLOB
-                )
-            """)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS documents (
-                      id INTEGER PRIMARY KEY
-                    , title TEXT
-                    , content BLOB
-                )
-            """)
+        self._connection = sqlite3.connect(self._database_file if not self._memory_mode else ':memory:')
+        cursor = self._connection.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS indices (
+                  token TEXT PRIMARY KEY
+                , posting_list BLOB
+            )
+        """)
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS documents (
+                  id INTEGER PRIMARY KEY
+                , title TEXT
+                , content BLOB
+            )
+        """)
 
     @log
     def delete_index(self):
-        connection = sqlite3.connect(self._database_file)
-        with connection:
-            cursor = connection.cursor()
-            cursor.execute('DELETE FROM indices')
+        cursor = self._connection.cursor()
+        cursor.execute('DELETE FROM indices')
 
     @log
     def delete_documents(self):
-        connection = sqlite3.connect(self._database_file)
-        with connection:
-            cursor = connection.cursor()
-            cursor.execute('DELETE FROM documents')
+        cursor = self._connection.cursor()
+        cursor.execute('DELETE FROM documents')
         self.delete_index()
 
     @log
@@ -124,13 +120,11 @@ class Indexer(object):
 
     @log
     def _store_document(self, title, content):
-        connection = sqlite3.connect(self._database_file)
-        with connection:
-            cursor = connection.cursor()
-            compressed = bz2.compress(content.encode('utf-8'), _compress_level)
-            cursor.execute('INSERT INTO documents (title, content) VALUES(?, ?)', (title, compressed))
-            lastrowid = cursor.lastrowid
-            return lastrowid
+        cursor = self._connection.cursor()
+        compressed = bz2.compress(content.encode('utf-8'), _compress_level)
+        cursor.execute('INSERT INTO documents (title, content) VALUES(?, ?)', (title, compressed))
+        lastrowid = cursor.lastrowid
+        return lastrowid
 
     @log
     def _create_posting_list(self, document_id, title, content):
@@ -139,28 +133,39 @@ class Indexer(object):
                 inverted_index_hash = self._inverted_index[token]
                 inverted_index_hash.add(document_id, i)
             else:
-                connection = sqlite3.connect(self._database_file)
-                with connection:
-                    cursor = connection.cursor()
-                    cursor.execute('SELECT token, posting_list FROM indices WHERE token = ?', (token,))
-                    rows = cursor.fetchall()
-                    if len(rows) > 0:
-                        for row in rows:
-                            unpickled = pickle.loads(row[1])
-                            unpickled.add(document_id, i)
-                            self._inverted_index[token] = unpickled
-                    else:
-                        self._inverted_index[token] = InvertedIndexHash(token, document_id, i)
+                cursor = self._connection.cursor()
+                cursor.execute('SELECT token, posting_list FROM indices WHERE token = ?', (token,))
+                rows = cursor.fetchall()
+                if len(rows) > 0:
+                    for row in rows:
+                        unpickled = pickle.loads(row[1])
+                        unpickled.add(document_id, i)
+                        self._inverted_index[token] = unpickled
+                else:
+                    self._inverted_index[token] = InvertedIndexHash(token, document_id, i)
 
     @log
     def _flush_buffer(self):
-        connection = sqlite3.connect(self._database_file)
-        with connection:
-            for k, v in self._inverted_index.items():
-                pickled = pickle.dumps(v)
-                cursor = connection.cursor()
-                cursor.execute('INSERT OR REPLACE INTO indices (token, posting_list) VALUES (?, ?)', (k, pickled))
+        for k, v in self._inverted_index.items():
+            pickled = pickle.dumps(v)
+            cursor = self._connection.cursor()
+            cursor.execute('INSERT OR REPLACE INTO indices (token, posting_list) VALUES (?, ?)', (k, pickled))
         self._inverted_index = {}
+
+    @log
+    def flush_memory_to_file(self):
+        cursor = self._connection.cursor()
+        cursor.execute("attach '{0}' as __extdb".format(self._database_file))
+        cursor.execute("select name from sqlite_master where type='table'")
+        table_names = cursor.fetchall()
+        for table_name, in table_names:
+            cursor.execute("create table __extdb.{0} as select * from {1}".format(table_name, table_name))
+        cursor.execute("detach __extdb")
+
+    @log
+    def close_database_file(self):
+        self._connection.commit()
+        self._connection.close()
 
 class InvertedIndexHash(object):
     @log
@@ -183,8 +188,9 @@ class InvertedIndexHash(object):
 
 class Searcher(object):
     @log
-    def __init__(self, database_file, tokenizer_type = 'Bigram'):
+    def __init__(self, database_file, memory_mode = False, tokenizer_type = 'Bigram'):
         self._database_file = database_file
+        self._memory_mode = memory_mode
         self._tokenizer = TokenizerFactory().create_tokenizer(tokenizer_type)
 
     @log
@@ -300,6 +306,7 @@ class IndexManager(object):
         parser.add_argument('-T', '--test', help='run test', action='store_true')
         parser.add_argument('-I', '--showindex', help='show index', action='store_true')
         parser.add_argument('-C', '--showdocument', help='show document(s)', action='store_true')
+        parser.add_argument('-M', '--memorymode', help='enable in memory database mode', action='store_true')
         parser.add_argument('-c', '--content', metavar='content', help='document content to be stored and indexed')
         parser.add_argument('-d', '--databasefile', metavar='databasefile', help='a sqlite3 database file')
         parser.add_argument('-q', '--query', metavar='query', help='query string')
@@ -320,29 +327,33 @@ class IndexManager(object):
         if self._args.databasefile != None:
             if self._args.query != None:
                 if self._args.tokenizer != None:
-                    searcher = Searcher(self._args.databasefile, self._args.tokenizer)
+                    searcher = Searcher(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
                 else:
-                    searcher = Searcher(self._args.databasefile)
+                    searcher = Searcher(self._args.databasefile, self._args.memorymode)
                 search_results = searcher.search(self._args.query)
                 if search_results != None:
                     for row in search_results:
                         print(row[0], row[1])
             elif self._args.title != None and self._args.content != None:
                 if self._args.tokenizer != None:
-                    indexer = Indexer(self._args.databasefile, self._args.tokenizer)
+                    indexer = Indexer(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
                 else:
-                    indexer = Indexer(self._args.databasefile)
+                    indexer = Indexer(self._args.databasefile, self._args.memorymode)
                 indexer.add_index(self._args.title, self._args.content)
             elif self._args.files != None:
                 if self._args.tokenizer != None:
-                    indexer = Indexer(self._args.databasefile, self._args.tokenizer)
+                    indexer = Indexer(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
                 else:
-                    indexer = Indexer(self._args.databasefile)
+                    indexer = Indexer(self._args.databasefile, self._args.memorymode)
                 for file_name in self._args.files:
                     with open(file_name) as f:
                         for line in f:
                             l = re.split('\s+', line, 1)
                             indexer.add_index(l[0], l[1])
+                if self._args.memorymode:
+                    indexer.flush_memory_to_file()
+                else:
+                    indexer.close_database_file()
 
             if self._args.showindex:
                 connection = sqlite3.connect(self._args.databasefile)
