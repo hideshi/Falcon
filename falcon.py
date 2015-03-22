@@ -12,7 +12,7 @@ from datetime import datetime
 
 _DEFAULT_TOKENIZER = 'Bigram'
 _COMPRESS_LEVEL = 9
-_PORT = 8888
+_DEFAULT_PORT = 8888
 
 def log(method):
     def wrapper(self, *args):
@@ -342,14 +342,15 @@ class IndexManager(object):
     @log
     def run(self):
         parser = argparse.ArgumentParser(description='Falcon Full Text Search Engine')
-        parser.add_argument('-D', '--debug', help='enable debug mode', action='store_true')
-        parser.add_argument('-T', '--test', help='run test', action='store_true')
-        parser.add_argument('-I', '--showindex', help='show index', action='store_true')
         parser.add_argument('-C', '--showdocument', help='show document(s)', action='store_true')
-        parser.add_argument('-M', '--memorymode', help='enable in memory database mode', action='store_true')
+        parser.add_argument('-D', '--debug', help='enable debug mode', action='store_true')
         parser.add_argument('-H', '--httpserver', help='run http server mode', action='store_true')
+        parser.add_argument('-I', '--showindex', help='show index', action='store_true')
+        parser.add_argument('-M', '--memorymode', help='enable in memory database mode', action='store_true')
+        parser.add_argument('-T', '--test', help='run test', action='store_true')
         parser.add_argument('-c', '--content', metavar='content', help='document content to be stored and indexed')
         parser.add_argument('-d', '--databasefile', metavar='databasefile', help='a sqlite3 database file')
+        parser.add_argument('-p', '--port', metavar='port', help='http port')
         parser.add_argument('-q', '--query', metavar='query', help='query string')
         parser.add_argument('-t', '--title', metavar='title', help='document title to be stored and indexed')
         parser.add_argument('-z', '--tokenizer', metavar='tokenizer', help='Type of tokenizer [Bigram, Trigram]')
@@ -369,10 +370,12 @@ class IndexManager(object):
             self._args.tokenizer = _DEFAULT_TOKENIZER
 
         if self._args.httpserver and self._args.databasefile != None:
+            if self._args.port == None:
+                self._args.port = _DEFAULT_PORT
             handler = FalconHTTPRequestHandler
             handler.initialize(handler, self._args.databasefile, self._args.memorymode, self._args.tokenizer)
-            httpd = HTTPServer(("", _PORT), handler)
-            print("Falcon is serving at port", _PORT)
+            httpd = HTTPServer(("", int(self._args.port)), handler)
+            print("Falcon is serving at port", self._args.port)
             httpd.serve_forever()
 
         if self._args.databasefile != None:
