@@ -81,8 +81,6 @@ class TokenizerFactory(object):
 
 class Indexer(object):
 
-    mem_usage_limit = 10 * 1024 * 1024
-
     @log
     def __init__(self, database_file, memory_mode, tokenizer_type):
         self._database_file = database_file
