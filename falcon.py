@@ -198,35 +198,34 @@ class Searcher(object):
 
     @log
     def search(self, words):
-        result = None
+        matched_document_ids = None
         for word in re.split('\s+', words.strip(' 　')):
             tokens = self._tokenizer.tokenize(word)
             connection = sqlite3.connect(self._database_file)
             documents = {}
             with connection:
                 cursor = connection.cursor()
-                cursor.execute('SELECT token, posting_list FROM indices WHERE token IN("{0}")'.format('", "'.join(str(token) for i, token in tokens)))
+                cursor.execute('SELECT posting_list FROM indices WHERE token IN("{0}")'.format('", "'.join(str(token) for i, token in tokens)))
                 rows = cursor.fetchall()
                 if len(rows) > 0:
                     for row in rows:
-                        unpickled = pickle.loads(row[1])
-                        for token, pl in unpickled.posting_list.items():
-                            if token not in documents:
-                                documents[token] = []
-                            for i in pl:
-                                documents[token].append((i, row[0]))
+                        unpickled = pickle.loads(row[0])
+                        for document_id, pl_item in unpickled.posting_list.items():
+                            if document_id not in documents:
+                                documents[document_id] = []
+                            for position in pl_item:
+                                documents[document_id].append((position, unpickled.token))
                 else:
                     return None
-            if result != None:
-                result = result.intersection(self._get_matched_document_ids(documents, tokens))
+            if matched_document_ids != None:
+                matched_document_ids = matched_document_ids.intersection(self._get_matched_document_ids(documents, tokens))
             else:
-                result = self._get_matched_document_ids(documents, tokens)
-        return self._get_documents(result)
+                matched_document_ids = self._get_matched_document_ids(documents, tokens)
+        return self._get_documents(matched_document_ids)
 
     @log
     def _get_matched_document_ids(self, documents, tokens):
         matched_document_ids = []
-        skip = 1
         for document_id, positions in documents.items():
             sorted_positions = sorted(positions)
             number_of_tokens = len(tokens)
@@ -240,6 +239,7 @@ class Searcher(object):
                     if token == t:
                         if number_of_tokens == sequence:
                             matched_document_ids.append(document_id)
+                            continue
                         sequence = sequence + 1
                 prev_position = position
         return set(matched_document_ids)
@@ -247,7 +247,7 @@ class Searcher(object):
     @log
     def _get_documents(self, matched_document_ids, return_content = False):
         if len(matched_document_ids) == 0:
-            return {}
+            return []
         connection = sqlite3.connect(self._database_file)
         with connection:
             cursor = connection.cursor()
