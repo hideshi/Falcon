@@ -203,22 +203,20 @@ class Searcher(object):
             tokens = self._tokenizer.tokenize(word)
             connection = sqlite3.connect(self._database_file)
             documents = {}
-            for i, token in tokens:
-                with connection:
-                    cursor = connection.cursor()
-                    cursor.execute('SELECT token, posting_list FROM indices WHERE token = ?', (token,))
-                    rows = cursor.fetchall()
-                    if len(rows) > 0:
-                        for row in rows:
-                            unpickled = pickle.loads(row[1])
-                            for k, v in unpickled.posting_list.items():
-                                if k not in documents:
-                                    documents[k] = []
-                                for i in v:
-                                    documents[k].append((i, token))
-                                documents[k] = sorted(documents[k])
-                    else:
-                        return None
+            with connection:
+                cursor = connection.cursor()
+                cursor.execute('SELECT token, posting_list FROM indices WHERE token IN("{0}")'.format('", "'.join(str(token) for i, token in tokens)))
+                rows = cursor.fetchall()
+                if len(rows) > 0:
+                    for row in rows:
+                        unpickled = pickle.loads(row[1])
+                        for token, pl in unpickled.posting_list.items():
+                            if token not in documents:
+                                documents[token] = []
+                            for i in pl:
+                                documents[token].append((i, row[0]))
+                else:
+                    return None
             if result != None:
                 result = result.intersection(self._get_matched_document_ids(documents, tokens))
             else:
@@ -228,6 +226,7 @@ class Searcher(object):
     @log
     def _get_matched_document_ids(self, documents, tokens):
         matched_document_ids = []
+        skip = 1
         for document_id, positions in documents.items():
             sorted_positions = sorted(positions)
             number_of_tokens = len(tokens)
