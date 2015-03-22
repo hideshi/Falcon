@@ -5,9 +5,14 @@ import bz2
 import re
 import argparse
 import unittest
-import resource
+import json
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from urllib.parse import urlparse, parse_qs
+from datetime import datetime
 
-_compress_level = 9
+_DEFAULT_TOKENIZER = 'Bigram'
+_COMPRESS_LEVEL = 9
+_PORT = 8888
 
 def log(method):
     def wrapper(self, *args):
@@ -79,7 +84,7 @@ class Indexer(object):
     mem_usage_limit = 10 * 1024 * 1024
 
     @log
-    def __init__(self, database_file, memory_mode = False, tokenizer_type = 'Bigram'):
+    def __init__(self, database_file, memory_mode, tokenizer_type):
         self._database_file = database_file
         self._memory_mode = memory_mode
         self._tokenizer = TokenizerFactory().create_tokenizer(tokenizer_type)
@@ -121,7 +126,7 @@ class Indexer(object):
     @log
     def _store_document(self, title, content):
         cursor = self._connection.cursor()
-        compressed = bz2.compress(content.encode('utf-8'), _compress_level)
+        compressed = bz2.compress(content.encode('utf-8'), _COMPRESS_LEVEL)
         cursor.execute('INSERT INTO documents (title, content) VALUES(?, ?)', (title, compressed))
         lastrowid = cursor.lastrowid
         return lastrowid
@@ -188,7 +193,7 @@ class InvertedIndexHash(object):
 
 class Searcher(object):
     @log
-    def __init__(self, database_file, memory_mode = False, tokenizer_type = 'Bigram'):
+    def __init__(self, database_file, memory_mode, tokenizer_type):
         self._database_file = database_file
         self._memory_mode = memory_mode
         self._tokenizer = TokenizerFactory().create_tokenizer(tokenizer_type)
@@ -255,7 +260,44 @@ class Searcher(object):
             else:
                 cursor.execute('SELECT id, title FROM documents WHERE id IN({0})'.format(', '.join(str(i) for i in matched_document_ids)))
                 return [[id, title] for id, title in cursor.fetchall()]
-        
+
+class FalconHTTPRequestHandler(BaseHTTPRequestHandler):
+    def initialize(self, database_file, memory_mode, tokenizer):
+        self._database_file = database_file
+        self._memory_mode = memory_mode
+        self._tokenizer = tokenizer
+
+    def do_GET(self):
+        url = urlparse(self.path)
+        query_string = parse_qs(url.query)
+        content_type = 'text/html'
+        result = ''
+        if url.path == '/search':
+            content_type = 'application/json'
+            print(datetime.now(), '/search', query_string)
+            if 'w' in query_string:
+                searcher = Searcher(self._database_file, self._memory_mode, self._tokenizer)
+                search_results = searcher.search(query_string['w'][0])
+                result = json.dumps(search_results, ensure_ascii=False)
+        elif url.path == '/add':
+            print(datetime.now(), '/add', query_string)
+            if 't' in query_string and 'c' in query_string:
+                indexer = Indexer(self._database_file, self._memory_mode, self._tokenizer)
+                indexer.add_index(query_string['t'][0], query_string['c'][0])
+                indexer.close_database_file()
+                result = 'Added ' + query_string['t'][0] + query_string['c'][0]
+        self.send_response(200)
+        self.send_header('Content-type', content_type + ';charset=utf-8')
+        self.end_headers()
+        self.wfile.write(result.encode('utf-8'))
+        return result
+
+    def do_HEAD(self):
+        pass
+
+    def do_POST(self):
+        pass
+
 class TokenizerFactoryTest(unittest.TestCase):
     def runTest(self):
         self.test_create_tokenizer()
@@ -307,6 +349,7 @@ class IndexManager(object):
         parser.add_argument('-I', '--showindex', help='show index', action='store_true')
         parser.add_argument('-C', '--showdocument', help='show document(s)', action='store_true')
         parser.add_argument('-M', '--memorymode', help='enable in memory database mode', action='store_true')
+        parser.add_argument('-H', '--httpserver', help='run http server mode', action='store_true')
         parser.add_argument('-c', '--content', metavar='content', help='document content to be stored and indexed')
         parser.add_argument('-d', '--databasefile', metavar='databasefile', help='a sqlite3 database file')
         parser.add_argument('-q', '--query', metavar='query', help='query string')
@@ -324,27 +367,28 @@ class IndexManager(object):
             runner = unittest.TextTestRunner()
             runner.run(suite)
 
+        if self._args.tokenizer == None:
+            self._args.tokenizer = _DEFAULT_TOKENIZER
+
+        if self._args.httpserver and self._args.databasefile != None:
+            handler = FalconHTTPRequestHandler
+            handler.initialize(handler, self._args.databasefile, self._args.memorymode, self._args.tokenizer)
+            httpd = HTTPServer(("", _PORT), handler)
+            print("Falcon is serving at port", _PORT)
+            httpd.serve_forever()
+
         if self._args.databasefile != None:
             if self._args.query != None:
-                if self._args.tokenizer != None:
-                    searcher = Searcher(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
-                else:
-                    searcher = Searcher(self._args.databasefile, self._args.memorymode)
+                searcher = Searcher(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
                 search_results = searcher.search(self._args.query)
                 if search_results != None:
                     for row in search_results:
                         print(row[0], row[1])
             elif self._args.title != None and self._args.content != None:
-                if self._args.tokenizer != None:
-                    indexer = Indexer(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
-                else:
-                    indexer = Indexer(self._args.databasefile, self._args.memorymode)
+                indexer = Indexer(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
                 indexer.add_index(self._args.title, self._args.content)
             elif self._args.files != None:
-                if self._args.tokenizer != None:
-                    indexer = Indexer(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
-                else:
-                    indexer = Indexer(self._args.databasefile, self._args.memorymode)
+                indexer = Indexer(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
                 for file_name in self._args.files:
                     with open(file_name) as f:
                         for line in f:
