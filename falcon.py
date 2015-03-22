@@ -260,9 +260,8 @@ class Searcher(object):
                 return [[id, title] for id, title in cursor.fetchall()]
 
 class FalconHTTPRequestHandler(BaseHTTPRequestHandler):
-    def initialize(self, database_file, memory_mode, tokenizer):
+    def initialize(self, database_file, tokenizer):
         self._database_file = database_file
-        self._memory_mode = memory_mode
         self._tokenizer = tokenizer
 
     def do_GET(self):
@@ -271,16 +270,16 @@ class FalconHTTPRequestHandler(BaseHTTPRequestHandler):
         content_type = 'text/html'
         result = ''
         if url.path == '/search':
-            content_type = 'application/json'
             print(datetime.now(), '/search', query_string)
             if 'w' in query_string:
-                searcher = Searcher(self._database_file, self._memory_mode, self._tokenizer)
+                content_type = 'application/json'
+                searcher = Searcher(self._database_file, False, self._tokenizer)
                 search_results = searcher.search(query_string['w'][0])
-                result = json.dumps(search_results, ensure_ascii=False)
+                result = json.dumps(search_results if search_results != None else [], ensure_ascii=False)
         elif url.path == '/add':
             print(datetime.now(), '/add', query_string)
             if 't' in query_string and 'c' in query_string:
-                indexer = Indexer(self._database_file, self._memory_mode, self._tokenizer)
+                indexer = Indexer(self._database_file, False, self._tokenizer)
                 indexer.add_index(query_string['t'][0], query_string['c'][0])
                 indexer.close_database_file()
                 result = 'Added ' + query_string['t'][0] + query_string['c'][0]
@@ -288,13 +287,7 @@ class FalconHTTPRequestHandler(BaseHTTPRequestHandler):
         self.send_header('Content-type', content_type + ';charset=utf-8')
         self.end_headers()
         self.wfile.write(result.encode('utf-8'))
-        return result
-
-    def do_HEAD(self):
-        pass
-
-    def do_POST(self):
-        pass
+        return
 
 class TokenizerFactoryTest(unittest.TestCase):
     def runTest(self):
@@ -373,7 +366,7 @@ class IndexManager(object):
             if self._args.port == None:
                 self._args.port = _DEFAULT_PORT
             handler = FalconHTTPRequestHandler
-            handler.initialize(handler, self._args.databasefile, self._args.memorymode, self._args.tokenizer)
+            handler.initialize(handler, self._args.databasefile, self._args.tokenizer)
             httpd = HTTPServer(("", int(self._args.port)), handler)
             print("Falcon is serving at port", self._args.port)
             httpd.serve_forever()
