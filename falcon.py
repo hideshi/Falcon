@@ -270,14 +270,12 @@ class FalconHTTPRequestHandler(BaseHTTPRequestHandler):
         content_type = 'text/html'
         result = ''
         if url.path == '/search':
-            print(datetime.now(), '/search', query_string)
             if 'w' in query_string:
                 content_type = 'application/json'
                 searcher = Searcher(self._database_file, False, self._tokenizer)
                 search_results = searcher.search(query_string['w'][0])
                 result = json.dumps(search_results if search_results != None else [], ensure_ascii=False)
         elif url.path == '/add':
-            print(datetime.now(), '/add', query_string)
             if 't' in query_string and 'c' in query_string:
                 indexer = Indexer(self._database_file, False, self._tokenizer)
                 indexer.add_index(query_string['t'][0], query_string['c'][0])
@@ -371,7 +369,7 @@ class IndexManager(object):
             print("Falcon is serving at port", self._args.port)
             httpd.serve_forever()
 
-        if self._args.databasefile != None:
+        elif not self._args.httpserver and self._args.databasefile != None:
             if self._args.query != None:
                 searcher = Searcher(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
                 search_results = searcher.search(self._args.query)
