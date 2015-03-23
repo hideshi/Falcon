@@ -6,6 +6,7 @@ import re
 import argparse
 import unittest
 import json
+import gc
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
@@ -13,6 +14,7 @@ from datetime import datetime
 _DEFAULT_TOKENIZER = 'Bigram'
 _COMPRESS_LEVEL = 9
 _DEFAULT_PORT = 8888
+_TOKEN_POSITION_LIMIT = 5000000
 
 def log(method):
     def wrapper(self, *args):
@@ -87,7 +89,7 @@ class Indexer(object):
         self._memory_mode = memory_mode
         self._tokenizer = TokenizerFactory().create_tokenizer(tokenizer_type)
         self._inverted_index = {}
-        self._connection = sqlite3.connect(self._database_file if not self._memory_mode else ':memory:')
+        self._connection = sqlite3.connect(self._database_file if not self._memory_mode else ':memory:', isolation_level = 'DEFERRED')
         cursor = self._connection.cursor()
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS indices (
@@ -102,6 +104,8 @@ class Indexer(object):
                 , content BLOB
             )
         """)
+        self._connection.execute("PRAGMA journal_mode = OFF")
+        self._connection.execute("PRAGMA synchronous = OFF")
 
     @log
     def delete_index(self):
@@ -137,26 +141,32 @@ class Indexer(object):
                 inverted_index_hash.add(document_id, i)
             else:
                 cursor = self._connection.cursor()
-                cursor.execute('SELECT token, posting_list FROM indices WHERE token = ?', (token,))
+                cursor.execute('SELECT posting_list FROM indices WHERE token = ?', (token,))
                 rows = cursor.fetchall()
                 if len(rows) > 0:
                     for row in rows:
-                        unpickled = pickle.loads(row[1])
+                        unpickled = pickle.loads(row[0])
                         unpickled.add(document_id, i)
                         self._inverted_index[token] = unpickled
                 else:
                     self._inverted_index[token] = InvertedIndexHash(token, document_id, i)
 
     @log
-    def _flush_buffer(self):
-        for k, v in self._inverted_index.items():
-            pickled = pickle.dumps(v)
-            cursor = self._connection.cursor()
-            cursor.execute('INSERT OR REPLACE INTO indices (token, posting_list) VALUES (?, ?)', (k, pickled))
-        self._inverted_index = {}
+    def _flush_buffer(self, final = False):
+        total_number_positions = sum([item.positions_count for token, item in self._inverted_index.items()])
+        if final or total_number_positions > _TOKEN_POSITION_LIMIT:
+            for k, v in self._inverted_index.items():
+                pickled = pickle.dumps(v)
+                cursor = self._connection.cursor()
+                cursor.execute('INSERT OR REPLACE INTO indices (token, posting_list) VALUES (?, ?)', (k, pickled))
+            self._inverted_index = None
+            del self._inverted_index
+            gc.collect()
+            self._inverted_index = {}
 
     @log
     def flush_memory_to_file(self):
+        self._connection.commit()
         cursor = self._connection.cursor()
         cursor.execute("attach '{0}' as __extdb".format(self._database_file))
         cursor.execute("select name from sqlite_master where type='table'")
@@ -167,6 +177,7 @@ class Indexer(object):
 
     @log
     def close_database_file(self):
+        self._flush_buffer(True)
         self._connection.commit()
         self._connection.close()
 
@@ -201,7 +212,8 @@ class Searcher(object):
         matched_document_ids = None
         for word in re.split('\s+', words.strip(' 　')):
             tokens = self._tokenizer.tokenize(word)
-            connection = sqlite3.connect(self._database_file)
+            connection = sqlite3.connect(self._database_file, isolation_level = 'DEFERRED')
+            connection.execute("BEGIN TRANSACTION")
             documents = {}
             with connection:
                 cursor = connection.cursor()
@@ -221,7 +233,9 @@ class Searcher(object):
                 matched_document_ids = matched_document_ids.intersection(self._get_matched_document_ids(documents, tokens))
             else:
                 matched_document_ids = self._get_matched_document_ids(documents, tokens)
-        return self._get_documents(matched_document_ids)
+        documents = self._get_documents(matched_document_ids)
+        connection.commit()
+        return documents
 
     @log
     def _get_matched_document_ids(self, documents, tokens):
@@ -385,10 +399,10 @@ class IndexManager(object):
                         for line in f:
                             l = re.split('\s+', line, 1)
                             indexer.add_index(l[0], l[1])
-                if self._args.memorymode:
-                    indexer.flush_memory_to_file()
-                else:
-                    indexer.close_database_file()
+                    if self._args.memorymode:
+                        indexer.flush_memory_to_file()
+                    else:
+                        indexer.close_database_file()
 
             if self._args.showindex:
                 connection = sqlite3.connect(self._args.databasefile)
