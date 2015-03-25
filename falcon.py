@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
+import unittest, json, gc
 from sqlite3 import connect
 from pickle import loads, dumps
 from bz2 import compress, decompress
 from re import compile, split
 from argparse import ArgumentParser
-import unittest
-import json
-import gc
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from urllib.parse import urlparse, parse_qs
 from datetime import datetime
@@ -154,7 +152,7 @@ class Indexer(object):
         cursor.execute("detach __extdb")
 
     @log
-    def close_database_file(self):
+    def close_database_connection(self):
         self._flush_buffer(True)
         self._connection.commit()
         self._connection.close()
@@ -259,24 +257,38 @@ class FalconHTTPRequestHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         url = urlparse(self.path)
         query_string = parse_qs(url.query)
+        status_code = 200
         content_type = 'text/html'
-        result = ''
-        if url.path == '/search':
-            if 'w' in query_string:
-                content_type = 'application/json'
-                searcher = Searcher(self._database_file, False, self._tokenizer)
-                search_results = searcher.search(query_string['w'][0])
-                result = json.dumps(search_results if search_results != None else [], ensure_ascii=False)
-        elif url.path == '/add':
-            if 't' in query_string and 'c' in query_string:
-                indexer = Indexer(self._database_file, False, self._tokenizer)
-                indexer.add_index(query_string['t'][0], query_string['c'][0])
-                indexer.close_database_file()
-                result = 'Added ' + query_string['t'][0] + query_string['c'][0]
-        self.send_response(200)
+        response_body = ''
+        try:
+            if url.path == '/search':
+                if 'w' in query_string:
+                    content_type = 'application/json'
+                    searcher = Searcher(self._database_file, False, self._tokenizer)
+                    search_results = searcher.search(query_string['w'][0])
+                    response_body = json.dumps(search_results if search_results != None else [], ensure_ascii=False)
+                else:
+                    status_code = 400
+                    response_body = 'Please enter search word(s).'
+            elif url.path == '/add':
+                if 't' in query_string and 'c' in query_string:
+                    indexer = Indexer(self._database_file, False, self._tokenizer)
+                    indexer.add_index(query_string['t'][0], query_string['c'][0])
+                    indexer.close_database_connection()
+                    response_body = 'Added:' + query_string['t'][0] + ' ' + query_string['c'][0]
+                else:
+                    status_code = 400
+                    response_body = 'Please enter document title and content.'
+            else:
+                status_code = 404
+                response_body = "Ooops, this page doesn't exist."
+        except:
+            status_code = 500
+            response_body = 'Server error occured.'
+        self.send_response(status_code)
         self.send_header('Content-type', content_type + ';charset=utf-8')
         self.end_headers()
-        self.wfile.write(result.encode('utf-8'))
+        self.wfile.write(response_body.encode('utf-8'))
         return
 
 class TokenizerFactoryTest(unittest.TestCase):
@@ -381,7 +393,7 @@ class IndexManager(object):
                     if self._args.memorymode:
                         indexer.flush_memory_to_file()
                     else:
-                        indexer.close_database_file()
+                        indexer.close_database_connection()
 
             if self._args.showindex:
                 connection = connect(self._args.databasefile)
