@@ -28,7 +28,7 @@ def log(method):
 class Tokenizer(object):
     @log
     def __init__(self):
-        self.stopwords = compile(r'[0-9\s,.!?"\'$%&\-+=/#:;{}\[\]()<>\^~_→｡@･ﾞ､｢｣…★☆♭\\–▼♪⇔♥°‐――≠※∞◇×、。（）：；「」『』【】［］｛｝〈〉《》〔〕〜～�｜｀＼＠？！”＃＄％＆’＝＋＊＜＞＿＾￥／，・´ ▽ ．－￤]')
+        self.stopwords = compile(r'[\s,.!?"\'$%&\-+=/#:;{}\[\]()<>\^~_→｡@･ﾞ､｢｣…★☆♭\\–▼♪⇔♥°‐――≠※∞◇×、。（）：；「」『』【】［］｛｝〈〉《》〔〕〜～�｜｀＼＠？！”＃＄％＆’＝＋＊＜＞＿＾￥／，・´ ▽ ．－￤]')
 
     @log
     def tokenize(self, title, content):
@@ -182,7 +182,7 @@ class Searcher(object):
         self._tokenizer = TokenizerFactory().create_tokenizer(tokenizer_type)
 
     @log
-    def search(self, words):
+    def search(self, words, return_content = False):
         matched_document_ids = None
         for word in split('\s+', words.strip(' 　')):
             tokens = self._tokenizer.tokenize(word)
@@ -208,7 +208,7 @@ class Searcher(object):
                 matched_document_ids = self._get_matched_document_ids(documents, tokens, matched_document_ids)
             else:
                 matched_document_ids = self._get_matched_document_ids(documents, tokens)
-        documents = self._get_documents(matched_document_ids)
+        documents = self._get_documents(matched_document_ids, return_content)
         connection.commit()
         return documents
 
@@ -265,7 +265,7 @@ class FalconHTTPRequestHandler(BaseHTTPRequestHandler):
                 if 'w' in query_string:
                     content_type = 'application/json'
                     searcher = Searcher(self._database_file, False, self._tokenizer)
-                    search_results = searcher.search(query_string['w'][0])
+                    search_results = searcher.search(query_string['w'][0], True)
                     response_body = json.dumps(search_results if search_results != None else [], ensure_ascii=False)
                 else:
                     status_code = 400
@@ -377,10 +377,10 @@ class IndexManager(object):
         elif not self._args.httpserver and self._args.databasefile != None:
             if self._args.query != None:
                 searcher = Searcher(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
-                search_results = searcher.search(self._args.query)
+                search_results = searcher.search(self._args.query, True)
                 if search_results != None:
                     for row in search_results:
-                        print(row[0], row[1])
+                        print(row[0], row[1], row[2][0:100])
             elif self._args.title != None and self._args.content != None:
                 indexer = Indexer(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
                 indexer.add_index(self._args.title, self._args.content)
@@ -390,7 +390,7 @@ class IndexManager(object):
                 for file_name in self._args.files:
                     with open(file_name) as f:
                         for line in f:
-                            l = split('\s+', line, 1)
+                            l = split(',', line, 1)
                             indexer.add_index(l[0], l[1])
                     if self._args.memorymode:
                         indexer.flush_memory_to_file()
