@@ -28,7 +28,7 @@ def log(method):
 class Tokenizer(object):
     @log
     def __init__(self):
-        self.stopwords = compile(r'[0-9\s,.!?"\'$%&\-+=/#:;{}\[\]()<>\^~_→i｡@･ﾞ､｢｣…★☆♭\\–▼♪⇔♥°‐――≠※∞◇×、。（）：；「」『』【】［］｛｝〈〉《》〔〕〜～�｜｀＼＠？！”＃＄％＆’＝＋＊＜＞＿＾￥／，・´ ▽ ．－￤]')
+        self.stopwords = compile(r'[0-9\s,.!?"\'$%&\-+=/#:;{}\[\]()<>\^~_→｡@･ﾞ､｢｣…★☆♭\\–▼♪⇔♥°‐――≠※∞◇×、。（）：；「」『』【】［］｛｝〈〉《》〔〕〜～�｜｀＼＠？！”＃＄％＆’＝＋＊＜＞＿＾￥／，・´ ▽ ．－￤]')
 
     @log
     def tokenize(self, title, content):
@@ -37,7 +37,7 @@ class Tokenizer(object):
 class BigramTokenizer(Tokenizer):
     @log
     def tokenize(self, title, content = ''):
-        document = title + content
+        document = ''.join([title, content])
         tokens = []
         for i in range(0, len(document)):
             token = document[i:i+2]
@@ -48,7 +48,7 @@ class BigramTokenizer(Tokenizer):
 class TrigramTokenizer(Tokenizer):
     @log
     def tokenize(self, title, content = ''):
-        document = title + content
+        document = ''.join([title, content])
         tokens = []
         for i in range(0, len(document)):
             token = document[i:i+3]
@@ -308,6 +308,7 @@ class BigramTokenizerTest(unittest.TestCase):
         o = BigramTokenizer()
         self.assertEqual(o.tokenize('abcd'), [(0, 'ab'), (1, 'bc'), (2, 'cd')])
         self.assertEqual(o.tokenize('a cd'), [(2, 'cd')])
+        self.assertEqual(o.tokenize('president'), [(0, 'pr'), (1, 're'), (2, 'es'), (3, 'si'), (4, 'id'), (5, 'de'), (6, 'en'), (7, 'nt')])
 
 class TrigramTokenizerTest(unittest.TestCase):
     def runTest(self):
@@ -383,6 +384,7 @@ class IndexManager(object):
             elif self._args.title != None and self._args.content != None:
                 indexer = Indexer(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
                 indexer.add_index(self._args.title, self._args.content)
+                indexer.close_database_connection()
             elif self._args.files != None:
                 indexer = Indexer(self._args.databasefile, self._args.memorymode, self._args.tokenizer)
                 for file_name in self._args.files:
