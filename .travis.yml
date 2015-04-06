@@ -1,0 +1,14 @@
+language: python
+python:
+  - 3.3
+  - 3.4
+
+install:
+  - python bootstrap.py
+  - bin/buildout
+
+script:
+  - bin/test
+
+services:
+  - sqlite3
