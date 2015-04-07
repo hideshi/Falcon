@@ -4,11 +4,7 @@ python:
   - 3.4
 
 install:
-  - python bootstrap.py
-  - bin/buildout
-
-script:
-  - bin/test
+  - pip install -r requirements.txt
 
 services:
   - sqlite3
